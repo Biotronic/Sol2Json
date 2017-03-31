@@ -43,6 +43,9 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Amf0\Amf0Attribute.cs" />
+    <Compile Include="Amf0\Amf0Block.cs" />
+    <Compile Include="Amf0\Amf0BlockType.cs" />
     <Compile Include="Amf3\Amf3Attribute.cs" />
     <Compile Include="Amf3\Amf3BlockType.cs" />
     <Compile Include="Amf3\Amf3Reader.cs" />
@@ -53,6 +56,7 @@
     <Compile Include="Amf3\DateBlock.cs" />
     <Compile Include="Amf3\DictionaryBlock.cs" />
     <Compile Include="Amf3\DoubleBlock.cs" />
+    <Compile Include="ExtendedStringEnumConverter.cs" />
     <Compile Include="Amf3\IntegerBlock.cs" />
     <Compile Include="Amf3\NullBlock.cs" />
     <Compile Include="Amf3\ObjectBlock.cs" />
@@ -64,6 +68,10 @@
     <Compile Include="Amf3\VectorUIntBlock.cs" />
     <Compile Include="Amf3\XmlBlock.cs" />
     <Compile Include="Amf3\XmlDocBlock.cs" />
+    <Compile Include="AmfBlock.cs" />
+    <Compile Include="AmfReader.cs" />
+    <Compile Include="AmfVersion.cs" />
+    <Compile Include="AmfWriter.cs" />
     <Compile Include="ExtensionMethods.cs" />
     <Compile Include="OrderedHashSet.cs" />
     <Compile Include="Program.cs" />

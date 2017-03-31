@@ -13,6 +13,7 @@ namespace SolJson
                 yield return root;
                 root = fn(root);
             }
+            // ReSharper disable once IteratorNeverReturns
         }
 
         public static ushort ChangeEndianness(this ushort value)
@@ -35,10 +36,10 @@ namespace SolJson
             return ((value & 0xFF00FF00FF00FF00) >> 8) | ((value & 0x00FF00FF00FF00FF) << 8);
         }
 
-        public static SerializableDictionary<TKey, TValue> ToSerializableDictionary<T, TKey, TValue>(
+        public static Dictionary<TKey, TValue> ToSerializableDictionary<T, TKey, TValue>(
             this IEnumerable<T> source, Func<T, TKey> keySelector, Func<T, TValue> valueSelector)
         {
-            var result= new SerializableDictionary<TKey,TValue>();
+            var result= new Dictionary<TKey,TValue>();
 
             foreach (var v in source)
             {

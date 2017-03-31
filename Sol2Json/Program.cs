@@ -9,12 +9,7 @@ namespace SolJson
         {
             SolFile sol;
             string destination;
-            if (Path.GetExtension(args[0])?.ToLower() == ".xml")
-            {
-                sol = SolFile.FromXml(args[0]);
-                destination = args.Length > 1 ? args[1] : Path.ChangeExtension(args[0], ".sol");
-            }
-            else if (Path.GetExtension(args[0])?.ToLower() == ".sol")
+            if (Path.GetExtension(args[0])?.ToLower() == ".sol")
             {
                 sol = SolFile.FromSol(args[0]);
                 destination = args.Length > 1 ? args[1] : Path.ChangeExtension(args[0], ".json");
@@ -29,11 +24,7 @@ namespace SolJson
                 throw new Exception();
             }
 
-            if (Path.GetExtension(destination)?.ToLower() == ".xml")
-            {
-                sol.ToXml(destination);
-            }
-            else if (Path.GetExtension(destination)?.ToLower() == ".sol")
+            if (Path.GetExtension(destination)?.ToLower() == ".sol")
             {
                 sol.ToSol(destination);
             }

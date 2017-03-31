@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using SolJson.Amf3;
 
 namespace SolJson
 {
@@ -18,32 +17,46 @@ namespace SolJson
         {
             var jsonObject = JObject.Load(reader);
             var name = jsonObject["Name"].Value<string>();
-            var type = (Amf3BlockType)jsonObject["Type"].Value<long>();
+            var typeString = jsonObject["Type"].Value<string>();
             var value = jsonObject["Value"];
-            
-            var result = (Amf3Block)Amf3Block.Blocks[type].Invoke(new object[] { name, type, null });
 
-            var generic = result.GetType()
-                .Recurse(a => a.BaseType)
-                .TakeWhile(a => a != null)
-                .FirstOrDefault(a => a.IsGenericType && a.GetGenericTypeDefinition() == typeof(Amf3Block<>));
+            var parts = typeString.Split('.');
 
-            if (generic == null) return result;
-            
-            generic.GetProperty("Value").SetValue(result,
-                serializer.Deserialize(value.CreateReader(), generic.GenericTypeArguments[0]));
+            var enumType = objectType.Assembly.GetTypes().First(a => a.Name == parts[0] && a.IsEnum);
+            var type = Enum.Parse(enumType, parts[1]);
+            if (type is Amf3.Amf3BlockType)
+            {
+                var result = AmfBlock.CreateBlock((Amf3.Amf3BlockType)type, name);
 
-            if (!(result is ObjectBlock)) return result;
+                var generic = result.GetType()
+                    .Recurse(a => a.BaseType)
+                    .TakeWhile(a => a != null)
+                    .FirstOrDefault(a => a.IsGenericType && a.GetGenericTypeDefinition() == typeof(Amf3.Amf3Block<>));
 
-            ((ObjectBlock) result).ClassName = jsonObject["ClassName"].Value<string>();
-            ((ObjectBlock) result).Traits = (List<string>)serializer.Deserialize(jsonObject["Traits"].CreateReader(), typeof(List<string>));
+                if (generic == null) return result;
 
-            return result;
+                var blockValue = serializer.Deserialize(value.CreateReader(), generic.GenericTypeArguments[0]);
+
+                result.GetType().GetProperty("Value").SetValue(result, blockValue);
+
+                if (!(result is Amf3.ObjectBlock)) return result;
+
+                ((Amf3.ObjectBlock)result).ClassName = jsonObject["ClassName"].Value<string>();
+                ((Amf3.ObjectBlock)result).Traits =
+                    (List<string>)serializer.Deserialize(jsonObject["Traits"].CreateReader(), typeof(List<string>));
+
+                return result;
+            }
+            if (type is Amf0.Amf0BlockType)
+            {
+                throw new NotImplementedException();
+            }
+            throw new ArgumentOutOfRangeException();
         }
 
         public override bool CanConvert(Type objectType)
         {
-            return objectType == typeof(Amf3Block);
+            return objectType.IsSubclassOf(typeof(AmfBlock)) || objectType == typeof(AmfBlock);
         }
     }
 }

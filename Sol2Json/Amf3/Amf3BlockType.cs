@@ -1,9 +1,8 @@
 using Newtonsoft.Json;
-using Newtonsoft.Json.Converters;
 
 namespace SolJson.Amf3
 {
-    [JsonConverter(typeof(StringEnumConverter))]
+    [JsonConverter(typeof(ExtendedStringEnumConverter))]
     public enum Amf3BlockType
     {
         Undefined = 0x00,

@@ -1,75 +1,18 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Linq;
-using System.Reflection;
-using System.Xml.Serialization;
 
 namespace SolJson.Amf3
 {
-    public abstract class Amf3Block
+    public abstract class Amf3Block : AmfBlock
     {
-        public static List<Type> BlockTypes { get; }
-        public static Dictionary<Amf3BlockType, ConstructorInfo> Blocks { get; }
-        [XmlAttribute]
-        public string Name { get; set; }
-        [XmlAttribute]
         public virtual Amf3BlockType Type { get; set; }
-
-        protected Amf3Block()
-        {
-        }
-
-        [SuppressMessage("ReSharper", "VirtualMemberCallInConstructor")]
-        protected Amf3Block(string name, Amf3BlockType type, Amf3Reader reader)
-        {
-            Name = name;
-            Type = type;
-            if (reader != null)
-            {
-                ReadValue(reader);
-            }
-        }
-
-        protected abstract void ReadValue(Amf3Reader reader);
-        public abstract void WriteValue(Amf3Writer writer);
-
-        static Amf3Block()
-        {
-            Blocks = new Dictionary<Amf3BlockType, ConstructorInfo>();
-            BlockTypes = Assembly.GetExecutingAssembly().GetTypes()
-                .Where(IsAmf3BlockType).ToList();
-            foreach (var type in BlockTypes)
-            {
-                foreach (var blockType in GetBlockType(type))
-                {
-                    Blocks[blockType] = GetConstructor(type);
-                }
-            }
-        }
-
-        private static ConstructorInfo GetConstructor(Type t)
-        {
-            return t.GetConstructor(BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance, null,
-                new[] { typeof(string), typeof(Amf3BlockType), typeof(Amf3Reader) }, new ParameterModifier[0]);
-        }
-
-        private static bool IsAmf3BlockType(Type t)
-        {
-            if (!t.IsSubclassOf(typeof(Amf3Block))) return false;
-
-            return GetBlockType(t).Any();
-        }
-
-        private static Amf3BlockType[] GetBlockType(MemberInfo t)
-        {
-            return t.GetCustomAttributes<Amf3Attribute>().Select(a => a.Type).ToArray();
-        }
     }
 
     [DebuggerDisplay("{Name}: {Value}")]
-    public abstract class Amf3Block<T> : Amf3Block
+    public abstract class Amf3Block<T> : Amf3Block, IEquatable<Amf3Block<T>>
     {
         public T Value { get; set; }
 
@@ -77,8 +20,46 @@ namespace SolJson.Amf3
         {
         }
 
-        protected Amf3Block(string name, Amf3BlockType type, Amf3Reader reader) : base(name, type, reader)
+        protected Amf3Block(T value)
         {
+            Value = value;
+        }
+
+        public bool Equals(Amf3Block<T> other)
+        {
+            if (ReferenceEquals(null, other)) return false;
+            if (ReferenceEquals(this, other)) return true;
+
+            var v1 = Value as IEnumerable;
+            var v2 = other.Value as IEnumerable;
+            if (v1 != null && v2 != null)
+            {
+                return v1.OfType<object>().SequenceEqual(v2.OfType<object>());
+            }
+            return EqualityComparer<T>.Default.Equals(Value, other.Value);
+        }
+
+        public override bool Equals(object obj)
+        {
+            if (ReferenceEquals(null, obj)) return false;
+            if (ReferenceEquals(this, obj)) return true;
+            if (obj.GetType() != GetType()) return false;
+            return Equals((Amf3Block<T>) obj);
+        }
+
+        public override int GetHashCode()
+        {
+            return EqualityComparer<T>.Default.GetHashCode(Value);
+        }
+
+        public static bool operator ==(Amf3Block<T> left, Amf3Block<T> right)
+        {
+            return Equals(left, right);
+        }
+
+        public static bool operator !=(Amf3Block<T> left, Amf3Block<T> right)
+        {
+            return !Equals(left, right);
         }
     }
 }

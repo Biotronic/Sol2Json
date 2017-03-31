@@ -1,4 +1,5 @@
 /.vs
-/*.DotSettings.user
 /packages
-/Sol2Json/*.user
+/Sol2Json/bin
+/Sol2Json/obj
+*.user
