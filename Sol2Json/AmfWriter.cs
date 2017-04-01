@@ -15,21 +15,22 @@ namespace SolJson
         private List<string> StringPool { get; }
         private List<AmfBlock> ObjectPool { get; }
         private List<List<string>> TraitsPool { get; }
+        private List<AmfBlock> References { get; }
         private bool Closed { get; set; }
 
-        public AmfWriter(Stream stream, string name, AmfVersion version = AmfVersion.Amf3)
+        public AmfWriter(Stream stream, AmfVersion version = AmfVersion.Amf3)
         {
             Stream = stream;
             Writer = new BinaryWriter(stream);
             ObjectPool = new List<AmfBlock>();
             StringPool = new List<string>();
             TraitsPool = new List<List<string>>();
+            References = new List<AmfBlock>();
             Version = version;
-            WriteHeader(name);
         }
 
 
-        private void WriteHeader(string name)
+        public void WriteHeader(string name)
         {
             Writer.Write((ushort)0xBF00);
             Writer.Write(0);
@@ -51,6 +52,12 @@ namespace SolJson
 
         public void WriteString(string value)
         {
+            if (Version == AmfVersion.Amf0) WriteAmf0ShortString(value);
+            if (Version == AmfVersion.Amf3) WriteAmf3String(value);
+        }
+
+        private void WriteAmf3String(string value)
+        {
 
             if (!string.IsNullOrEmpty(value))
             {
@@ -67,6 +74,21 @@ namespace SolJson
             var val = Encoding.UTF8.GetBytes(value);
             WriteInt(val.Length, true);
             Writer.Write(val);
+        }
+
+        private void WriteAmf0ShortString(string value)
+        {
+            var tmp = Encoding.UTF8.GetBytes(value);
+            Debug.Assert(tmp.Length < 65536);
+            WriteInt16((short)tmp.Length);
+            Writer.Write(tmp);
+        }
+
+        private void WriteAmf0LongString(string value)
+        {
+            var tmp = Encoding.UTF8.GetBytes(value);
+            WriteInt32(tmp.Length);
+            Writer.Write(tmp);
         }
 
         public void WriteInt(int value, params bool[] flags)
@@ -116,14 +138,19 @@ namespace SolJson
             }
         }
 
+        public void WriteInt16(short value)
+        {
+            Writer.Write(value.ChangeEndianness());
+        }
+
         public void WriteInt32(int value)
         {
-            Writer.Write(value);
+            Writer.Write(value.ChangeEndianness());
         }
 
         public void WriteUInt32(uint value)
         {
-            Writer.Write(value);
+            Writer.Write(value.ChangeEndianness());
         }
 
         public void WriteByte(byte value)
@@ -133,7 +160,7 @@ namespace SolJson
 
         public void WriteDouble(double value)
         {
-            var data = (ulong)BitConverter.DoubleToInt64Bits(value);
+            var data = BitConverter.DoubleToInt64Bits(value);
             Writer.Write(data.ChangeEndianness());
         }
 
@@ -143,6 +170,11 @@ namespace SolJson
         }
 
         public void WriteBlockType(Amf3.Amf3BlockType value)
+        {
+            Writer.Write((byte)value);
+        }
+
+        private void WriteBlockType(Amf0.Amf0BlockType value)
         {
             Writer.Write((byte)value);
         }
@@ -157,6 +189,11 @@ namespace SolJson
         {
             return ObjectPool.Select(Tuple.Create<AmfBlock, int>)
                        .FirstOrDefault(a => (a.Item1 as Amf3.Amf3Block<T>) == block)?.Item2 ?? -1;
+        }
+
+        private short FindAmf0Reference(AmfBlock value)
+        {
+            return (short)References.FindIndex(a => a == value);
         }
 
         public int FindTraits(Amf3.ObjectBlock block)
@@ -174,10 +211,112 @@ namespace SolJson
             v.Invoke(this, new object[] { value });
         }
 
+        public void Write(Amf0.NumberBlock value)
+        {
+            WriteBlockType(value.Type);
+            WriteDouble(value.Value);
+        }
+
+        public void Write(Amf0.BooleanBlock value)
+        {
+            WriteBlockType(value.Type);
+            WriteByte((byte)(value.Value ? 1 : 0));
+        }
+
+        public void Write(Amf0.StringBlock value)
+        {
+            WriteBlockType(value.Type);
+            WriteAmf0ShortString(value.Value);
+        }
+
+        public void Write(Amf0.ObjectBlock value)
+        {
+            WriteBlockType(value.Type);
+        }
+
+        public void Write(Amf0.NullBlock value)
+        {
+            WriteBlockType(value.Type);
+        }
+
+        public void Write(Amf0.UndefinedBlock value)
+        {
+            WriteBlockType(value.Type);
+        }
+
+        public void Write(Amf0.ReferenceBlock value)
+        {
+            WriteBlockType(value.Type);
+            var tmp = FindAmf0Reference(value.Value);
+            WriteInt16(tmp);
+        }
+
+        public void Write(Amf0.EcmaArrayBlock value)
+        {
+            WriteBlockType(value.Type);
+            WriteInt32(value.Value.Count);
+            foreach (var v in value.Value)
+            {
+                WriteAmf0ShortString(v.Key);
+                Write(v.Value);
+            }
+        }
+
+        public void Write(Amf0.ObjectEndBlock value)
+        {
+            WriteBlockType(value.Type);
+        }
+
+        public void Write(Amf0.StrictArrayBlock value)
+        {
+            WriteBlockType(value.Type);
+            WriteInt32(value.Value.Count);
+            foreach (var v in value.Value)
+            {
+                Write(v);
+            }
+        }
+
+        public void Write(Amf0.DateBlock value)
+        {
+            WriteBlockType(value.Type);
+            WriteInt16(0);
+            WriteDouble((value.Value - new DateTime(1970,1,1)).TotalMilliseconds);
+        }
+
+        public void Write(Amf0.LongStringBlock value)
+        {
+            WriteBlockType(value.Type);
+            WriteAmf0LongString(value.Value);
+        }
+
+        public void Write(Amf0.UnsupportedBlock value)
+        {
+            WriteBlockType(value.Type);
+        }
+
+        public void Write(Amf0.XmlDocumentBlock value)
+        {
+            WriteBlockType(value.Type);
+            WriteAmf0LongString(value.Value);
+        }
+
+        public void Write(Amf0.TypedObjectBlock value)
+        {
+            WriteBlockType(value.Type);
+            WriteAmf0ShortString(value.ClassName);
+            foreach (var v in value.Value)
+            {
+                WriteAmf0ShortString(v.Key);
+                Write(v.Value);
+            }
+            WriteBlockType(Amf0.Amf0BlockType.ObjectEnd);
+        }
+
         public void Write(Amf3.StringBlock value)
         {
             WriteBlockType(value.Type);
-            WriteString(value.Value);
+            WriteAmf3String(value.Value);
         }
 
         public void Write(Amf3.BooleanBlock value)
@@ -267,10 +406,10 @@ namespace SolJson
             {
                 // U29O-traits
                 WriteInt(value.Traits.Count, true, true, false, value.Value.Count > value.Traits.Count);
-                WriteString(value.ClassName);
+                WriteAmf3String(value.ClassName);
                 foreach (var v in value.Traits)
                 {
-                    WriteString(v);
+                    WriteAmf3String(v);
                 }
                 TraitsPool.Add(value.Traits);
             }
@@ -282,10 +421,10 @@ namespace SolJson
             {
                 if (value.Traits.Contains(v.Key)) continue;
 
-                WriteString(v.Key);
+                WriteAmf3String(v.Key);
                 Write(v.Value);
             }
-            WriteString("");
+            WriteAmf3String("");
             ObjectPool.Add(value);
         }
 
@@ -325,11 +464,11 @@ namespace SolJson
                 {
                     foreach (var v in value.Associative)
                     {
-                        WriteString(v.Key);
+                        WriteAmf3String(v.Key);
                         Write(v.Value);
                     }
                 }
-                WriteString("");
+                WriteAmf3String("");
                 foreach (var v in value.Value)
                 {
                     Write(v);
@@ -350,7 +489,7 @@ namespace SolJson
             {
                 WriteInt(value.Value.Count, true);
                 WriteByte((byte)(value.FixedLength ? 1 : 0));
-                WriteString("");
+                WriteAmf3String("");
                 foreach (var v in value.Value)
                 {
                     Write(v);

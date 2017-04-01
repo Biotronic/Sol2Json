@@ -36,6 +36,21 @@ namespace SolJson
             return ((value & 0xFF00FF00FF00FF00) >> 8) | ((value & 0x00FF00FF00FF00FF) << 8);
         }
 
+        public static long ChangeEndianness(this long value)
+        {
+            return (long)((ulong)value).ChangeEndianness();
+        }
+
+        public static int ChangeEndianness(this int value)
+        {
+            return (int)((uint)value).ChangeEndianness();
+        }
+
+        public static short ChangeEndianness(this short value)
+        {
+            return (short)((ushort)value).ChangeEndianness();
+        }
+
         public static Dictionary<TKey, TValue> ToSerializableDictionary<T, TKey, TValue>(
             this IEnumerable<T> source, Func<T, TKey> keySelector, Func<T, TValue> valueSelector)
         {

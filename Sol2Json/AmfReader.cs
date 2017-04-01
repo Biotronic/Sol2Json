@@ -11,10 +11,11 @@ namespace SolJson
     {
         public AmfVersion Version { get; set; }
         private BinaryReader Reader { get; }
-        private FileHeader Header { get; set; }
-        public List<string> StringPool { get; set; }
-        public List<AmfBlock> ObjectPool { get; set; }
-        public List<List<string>> TraitsPool { get; set; }
+        public FileHeader Header { get; set; }
+        public List<string> StringPool { get; }
+        public List<AmfBlock> ObjectPool { get; }
+        public List<List<string>> TraitsPool { get; }
+        public List<AmfBlock> References { get; }
 
 
         public AmfReader(Stream stream)
@@ -23,6 +24,14 @@ namespace SolJson
             StringPool = new List<string>();
             ObjectPool = new List<AmfBlock>();
             TraitsPool = new List<List<string>>();
+            References = new List<AmfBlock>();
+        }
+
+        internal string ReadString()
+        {
+            if (Version == AmfVersion.Amf0) return ReadAmf0String();
+            if (Version == AmfVersion.Amf3) return ReadAmf3String();
+            throw new ArgumentOutOfRangeException();
         }
 
         public void Dispose()
@@ -63,12 +72,17 @@ namespace SolJson
             }
         }
 
-        public Amf3.Amf3BlockType ReadBlockType()
+        public Amf0.Amf0BlockType ReadBlockType0()
+        {
+            return (Amf0.Amf0BlockType)Reader.ReadByte();
+        }
+
+        public Amf3.Amf3BlockType ReadBlockType3()
         {
             return (Amf3.Amf3BlockType)Reader.ReadByte();
         }
 
-        public string ReadString()
+        public string ReadAmf3String()
         {
             var size = ReadInt();
             if (!size.Flags[0]) return StringPool[size.Values[1]];
@@ -78,6 +92,11 @@ namespace SolJson
                 StringPool.Add(result);
             }
             return result;
+        }
+
+        private string ReadAmf0String()
+        {
+            return ReadString(ReadInt16());
         }
 
         public string ReadString(int length)
@@ -133,14 +152,19 @@ namespace SolJson
             return result;
         }
 
+        public short ReadInt16()
+        {
+            return Reader.ReadInt16().ChangeEndianness();
+        }
+
         public int ReadInt32()
         {
-            return Reader.ReadInt32();
+            return Reader.ReadInt32().ChangeEndianness();
         }
 
         public uint ReadUInt32()
         {
-            return Reader.ReadUInt32();
+            return Reader.ReadUInt32().ChangeEndianness();
         }
 
         public byte ReadByte()
@@ -163,12 +187,75 @@ namespace SolJson
         {
             if (Version == AmfVersion.Amf0)
             {
-                throw new NotImplementedException();
+                Amf0.Amf0Block result;
+                var type = ReadBlockType0();
+
+                switch (type)
+                {
+                    case Amf0.Amf0BlockType.Number:
+                        result = new Amf0.NumberBlock(ReadDouble());
+                        break;
+                    case Amf0.Amf0BlockType.Boolean:
+                        result = new Amf0.BooleanBlock(ReadByte() == 1);
+                        break;
+                    case Amf0.Amf0BlockType.String:
+                        result = new Amf0.StringBlock(ReadString(ReadInt16()));
+                        break;
+                    case Amf0.Amf0BlockType.Object:
+                        result = ReadAmf0ObjectBlock();
+                        break;
+                    case Amf0.Amf0BlockType.Null:
+                        result = new Amf0.NullBlock();
+                        break;
+                    case Amf0.Amf0BlockType.Undefined:
+                        result = new Amf0.UndefinedBlock();
+                        break;
+                    case Amf0.Amf0BlockType.Reference:
+                        result = ReadAmf0ReferenceBlock();
+                        break;
+                    case Amf0.Amf0BlockType.EcmaArray:
+                        result = ReadEcmaArray();
+                        break;
+                    case Amf0.Amf0BlockType.ObjectEnd:
+                        result = new Amf0.ObjectEndBlock();
+                        break;
+                    case Amf0.Amf0BlockType.StrictArray:
+                        result = ReadStrictArrayBlock();
+                        break;
+                    case Amf0.Amf0BlockType.Date:
+                        result = ReadAmf0DateBlock();
+                        break;
+                    case Amf0.Amf0BlockType.LongString:
+                        result = new Amf0.StringBlock(ReadAmf0String());
+                        break;
+                    case Amf0.Amf0BlockType.Unsupported:
+                        result = new Amf0.UnsupportedBlock();
+                        break;
+                    case Amf0.Amf0BlockType.XmlDocument:
+                        result = new Amf0.XmlDocumentBlock(ReadAmf0String());
+                        break;
+                    case Amf0.Amf0BlockType.TypedObject:
+                        result = ReadTypedObjectBlock();
+                        break;
+                    case Amf0.Amf0BlockType.Amf3Transition:
+                        result = new Amf0.Amf3TranstionBlock();
+                        Version = AmfVersion.Amf3;
+                        break;
+                    case Amf0.Amf0BlockType.Movieclip:
+                    case Amf0.Amf0BlockType.Recordset:
+                        throw new NotImplementedException();
+                    default:
+                        throw new ArgumentOutOfRangeException();
+                }
+
+                result.Type = type;
+                result.Name = name;
+                return result;
             }
             if (Version == AmfVersion.Amf3)
             {
                 Amf3.Amf3Block result;
-                var type = ReadBlockType();
+                var type = ReadBlockType3();
                 switch (type)
                 {
                     case Amf3.Amf3BlockType.Undefined:
@@ -190,7 +277,7 @@ namespace SolJson
                         result = new Amf3.DoubleBlock(ReadDouble());
                         break;
                     case Amf3.Amf3BlockType.String:
-                        result = new Amf3.StringBlock(ReadString());
+                        result = new Amf3.StringBlock(ReadAmf3String());
                         break;
                     case Amf3.Amf3BlockType.XmlDoc:
                         result = ReadXmlDocBlock();
@@ -235,6 +322,76 @@ namespace SolJson
             throw new ArgumentOutOfRangeException();
         }
 
+        private Amf0.TypedObjectBlock ReadTypedObjectBlock()
+        {
+            var assoc = new Dictionary<string, AmfBlock>();
+            var className = ReadAmf0String();
+
+            while (true)
+            {
+                var key = ReadAmf0String();
+                var value = ReadBlock(key);
+                if (key == string.Empty && value is Amf0.ObjectEndBlock) break;
+                assoc[key] = value;
+            }
+
+            return new Amf0.TypedObjectBlock(assoc, className);
+        }
+
+        private Amf0.ObjectBlock ReadAmf0ObjectBlock()
+        {
+            var assoc = new Dictionary<string, AmfBlock>();
+
+            while (true)
+            {
+                var key = ReadAmf0String();
+                var value = ReadBlock(key);
+                if (key == string.Empty && value is Amf0.ObjectEndBlock) break;
+                assoc[key] = value;
+            }
+
+            return new Amf0.ObjectBlock(assoc);
+        }
+
+        private Amf0.DateBlock ReadAmf0DateBlock()
+        {
+            ReadInt16(); // Time zone
+            var offset = ReadDouble();
+            return new Amf0.DateBlock(new DateTime(1970,1,1).AddMilliseconds(offset));
+        }
+
+        private Amf0.StrictArrayBlock ReadStrictArrayBlock()
+        {
+            var count = ReadInt32();
+            var value = new List<AmfBlock>();
+            for (var i = 0; i < count; ++i)
+            {
+                value.Add(ReadBlock(i.ToString()));
+            }
+
+            return new Amf0.StrictArrayBlock(value);
+        }
+
+        private Amf0.EcmaArrayBlock ReadEcmaArray()
+        {
+            var count = ReadInt32();
+            var assoc = new Dictionary<string, AmfBlock>();
+            for (var i = 0; i < count; ++i)
+            {
+                var key = ReadAmf0String();
+                var value = ReadBlock(key);
+                assoc[key] = value;
+            }
+
+            return new Amf0.EcmaArrayBlock(assoc);
+        }
+
+        private Amf0.ReferenceBlock ReadAmf0ReferenceBlock()
+        {
+            var index = ReadInt16();
+            return new Amf0.ReferenceBlock(References[index]);
+        }
+
         private Amf3.ObjectBlock ReadObjectBlock()
         {
             Dictionary<string, AmfBlock> fields;
@@ -268,13 +425,13 @@ namespace SolJson
                 // U29O-traits
                 //var isDynamic = val.Flags[3];
                 var count = val.Values[4];
-                className = ReadString();
+                className = ReadAmf3String();
 
                 fields = new Dictionary<string, AmfBlock>();
                 traits = new List<string>();
                 for (var i = 0; i < count; ++i)
                 {
-                    traits.Add(ReadString());
+                    traits.Add(ReadAmf3String());
                 }
                 for (var i = 0; i < count; ++i)
                 {
@@ -282,13 +439,13 @@ namespace SolJson
                 }
                 TraitsPool.Add(traits);
             }
-            var name = ReadString();
+            var name = ReadAmf3String();
             while (!string.IsNullOrEmpty(name))
             {
                 fields[name] = ReadBlock(name);
-                name = ReadString();
+                name = ReadAmf3String();
             }
-            var result = new Amf3.ObjectBlock(className,traits,fields);
+            var result = new Amf3.ObjectBlock(className, traits, fields);
             ObjectPool.Add(result);
             return result;
         }
@@ -321,7 +478,7 @@ namespace SolJson
                 return ((Amf3.VectorObjectBlock)ObjectPool[val.Values[1]]);
             }
             var fixedLength = ReadByte() == 1;
-            var typeName = ReadString();
+            var typeName = ReadAmf3String();
             var value = new List<AmfBlock>();
             for (var i = 0; i < val.Values[1]; ++i)
             {
@@ -339,7 +496,7 @@ namespace SolJson
             {
                 return ((Amf3.VectorDoubleBlock)ObjectPool[val.Values[1]]);
             }
-            var fixedLength = ReadByte()==1;
+            var fixedLength = ReadByte() == 1;
             var value = new List<double>();
             var count = val.Values[1];
             while (count > 0)
@@ -359,7 +516,7 @@ namespace SolJson
             {
                 return ((Amf3.VectorUIntBlock)ObjectPool[val.Values[1]]);
             }
-            var fixedLength = ReadByte()==1;
+            var fixedLength = ReadByte() == 1;
             var value = new List<uint>();
             var count = val.Values[1];
             while (count > 0)
@@ -379,7 +536,7 @@ namespace SolJson
             {
                 return ((Amf3.VectorIntBlock)ObjectPool[val.Values[1]]);
             }
-            var fixedLength = ReadByte()==1;
+            var fixedLength = ReadByte() == 1;
             var value = new List<int>();
             var count = val.Values[1];
             while (count > 0)
@@ -432,7 +589,7 @@ namespace SolJson
         private Amf3.XmlDocBlock ReadXmlDocBlock()
         {
             var v = ReadInt();
-            if (!v.Flags[0]) return (Amf3.XmlDocBlock) ObjectPool[v.Values[1]];
+            if (!v.Flags[0]) return (Amf3.XmlDocBlock)ObjectPool[v.Values[1]];
             var result = new Amf3.XmlDocBlock(ReadString(v.Values[1]));
             ObjectPool.Add(result);
 
@@ -445,14 +602,14 @@ namespace SolJson
 
             if (!val.Flags[0])
             {
-                return ((Amf3.ArrayBlock)ObjectPool[val.Values[1]]);
+                return (Amf3.ArrayBlock)ObjectPool[val.Values[1]];
             }
-            var key = ReadString();
+            var key = ReadAmf3String();
             var assoc = new Dictionary<string, Amf3.Amf3Block>();
             while (!string.IsNullOrEmpty(key))
             {
                 assoc[key] = (Amf3.Amf3Block)ReadBlock(key);
-                key = ReadString();
+                key = ReadAmf3String();
             }
             var value = new List<Amf3.Amf3Block>();
             for (var i = 0; i < val.Values[1]; ++i)

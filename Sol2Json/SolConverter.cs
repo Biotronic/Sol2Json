@@ -49,7 +49,24 @@ namespace SolJson
             }
             if (type is Amf0.Amf0BlockType)
             {
-                throw new NotImplementedException();
+                var result = AmfBlock.CreateBlock((Amf0.Amf0BlockType) type, name);
+
+                var generic = result.GetType()
+                    .Recurse(a => a.BaseType)
+                    .TakeWhile(a => a != null)
+                    .FirstOrDefault(a => a.IsGenericType && a.GetGenericTypeDefinition() == typeof(Amf0.Amf0Block<>));
+
+                if (generic == null) return result;
+
+                var blockValue = serializer.Deserialize(value.CreateReader(), generic.GenericTypeArguments[0]);
+
+                result.GetType().GetProperty("Value").SetValue(result, blockValue);
+
+                if (!(result is Amf0.TypedObjectBlock)) return result;
+
+                ((Amf0.TypedObjectBlock)result).ClassName = jsonObject["ClassName"].Value<string>();
+
+                return result;
             }
             throw new ArgumentOutOfRangeException();
         }

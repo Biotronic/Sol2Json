@@ -7,6 +7,7 @@ namespace SolJson
 {
     public class SolFile
     {
+        public AmfVersion Version { get; set; }
         public List<AmfBlock> Blocks { get; set; }
 
         public SolFile()
@@ -21,6 +22,7 @@ namespace SolJson
             using (var reader = new AmfReader(s))
             {
                 reader.ReadHeader();
+                result.Version = reader.Header.Version;
                 while (s.Position < s.Length)
                 {
                     var name = reader.ReadString();
@@ -36,8 +38,10 @@ namespace SolJson
         public void ToSol(string filename)
         {
             using (var s = File.OpenWrite(filename))
-            using (var writer = new AmfWriter(s, Path.GetFileNameWithoutExtension(filename)))
+            using (var writer = new AmfWriter(s))
             {
+                writer.Version = Version;
+                writer.WriteHeader(Path.GetFileNameWithoutExtension(filename));
                 foreach (var v in Blocks)
                 {
                     writer.WriteString(v.Name);
